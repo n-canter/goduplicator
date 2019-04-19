@@ -208,13 +208,17 @@ func forwardAndCopy(from net.Conn, to net.Conn, mirrors []mirror, errChForwardee
 
 		n, err := from.Read(b[:])
 		if err != nil {
-			errChForwardee <- err
+			if err == io.EOF {
+				errChForwardee <- nil
+			} else {
+				errChForwardee <- fmt.Errorf("Error reading data from client: %v", err)
+			}
 			return
 		}
 
 		_, err = to.Write(b[:n])
 		if err != nil {
-			errChForwardee <- err
+			errChForwardee <- fmt.Errorf("Error writing data to destination: %v", err)
 			return
 		}
 
@@ -225,6 +229,7 @@ func forwardAndCopy(from net.Conn, to net.Conn, mirrors []mirror, errChForwardee
 			mirrors[i].conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			_, err = mirrors[i].conn.Write(b[:n])
 			if err != nil {
+				err = fmt.Errorf("Error writing data to %v: %v", mirrors[i], err)
 				mirrors[i].conn.Close()
 				atomic.StoreUint32(&mirrors[i].closed, 1)
 				select {
@@ -349,9 +354,13 @@ func main() {
 			for !done {
 				select {
 				case err := <-errChMirrors:
-					log.Printf("got error from mirror: %s", err)
+					if err != nil {
+						log.Printf("got error from mirror: %s", err)
+					}
 				case err := <-errChForwardee:
-					log.Printf("got error from forwardee: %s", err)
+					if err != nil {
+						log.Printf("got error from forwardee: %s", err)
+					}
 					done = true
 				}
 			}
