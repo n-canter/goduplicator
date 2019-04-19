@@ -37,6 +37,10 @@ func readAndDiscard(m mirror, errCh chan error) {
 		var b [defaultBufferSize]byte
 		_, err := m.conn.Read(b[:])
 		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			err = fmt.Errorf("Error reading data from %v: %v", m.addr, err)
 			m.conn.Close()
 			atomic.StoreUint32(&m.closed, 1)
 			select {
@@ -54,13 +58,17 @@ func forward(from net.Conn, to net.Conn, errCh chan error) {
 
 		n, err := from.Read(b[:])
 		if err != nil {
-			errCh <- err
+			if err == io.EOF {
+				errCh <- nil
+			} else {
+				errCh <- fmt.Errorf("Error reading data from destination: %v", err)
+			}
 			return
 		}
 
 		_, err = to.Write(b[:n])
 		if err != nil {
-			errCh <- err
+			errCh <- fmt.Errorf("Error writing data to client: %v", err)
 			return
 		}
 	}
